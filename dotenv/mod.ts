@@ -92,12 +92,12 @@
 
 import { filterValues } from "../collections/filter_values.ts";
 import { withoutAll } from "../collections/without_all.ts";
+import { fromFileUrl } from "../path/mod.ts";
+import { LoadConfig } from "./load_types.ts";
 
-type StrictDotenvConfig<T extends ReadonlyArray<string>> =
-  & {
-    [key in T[number]]: string;
-  }
-  & Record<string, string>;
+type StrictDotenvConfig<T extends ReadonlyArray<string>> = {
+  [key in T[number]]: string;
+} & Record<string, string>;
 
 type StrictEnvVarList<T extends string> =
   | Array<Extract<T, string>>
@@ -166,7 +166,7 @@ const RE_ExpandValue =
 
 export function parse(
   rawDotenv: string,
-  restrictEnvAccessTo: StringList = [],
+  restrictEnvAccessTo: StringList = []
 ): Record<string, string> {
   const env: Record<string, string> = {};
 
@@ -174,18 +174,19 @@ export function parse(
   const keysForExpandCheck = [];
 
   while ((match = RE_KeyValue.exec(rawDotenv)) != null) {
-    const { key, interpolated, notInterpolated, unquoted } = match
-      ?.groups as LineParseResult;
+    const { key, interpolated, notInterpolated, unquoted } =
+      match?.groups as LineParseResult;
 
     if (unquoted) {
       keysForExpandCheck.push(key);
     }
 
-    env[key] = typeof notInterpolated === "string"
-      ? notInterpolated
-      : typeof interpolated === "string"
-      ? expandCharacters(interpolated)
-      : unquoted.trim();
+    env[key] =
+      typeof notInterpolated === "string"
+        ? notInterpolated
+        : typeof interpolated === "string"
+        ? expandCharacters(interpolated)
+        : unquoted.trim();
   }
 
   //https://github.com/motdotla/dotenv-expand/blob/ed5fea5bf517a09fd743ce2c63150e88c8a5f6d1/lib/main.js#L23
@@ -198,23 +199,21 @@ export function parse(
 }
 
 export function loadSync(
-  options?: Omit<LoadOptions, "restrictEnvAccessTo">,
-): Record<string, string>;
+  options?: Omit<LoadOptions, "restrictEnvAccessTo">
+): LoadConfig;
 export function loadSync<TEnvVar extends string>(
   options: Omit<LoadOptions, "restrictEnvAccessTo"> & {
     restrictEnvAccessTo: StrictEnvVarList<TEnvVar>;
-  },
+  }
 ): StrictDotenvConfig<StrictEnvVarList<TEnvVar>>;
-export function loadSync(
-  {
-    envPath = ".env",
-    examplePath = ".env.example",
-    defaultsPath = ".env.defaults",
-    export: _export = false,
-    allowEmptyValues = false,
-    restrictEnvAccessTo = [],
-  }: LoadOptions = {},
-): Record<string, string> {
+export function loadSync({
+  envPath = ".env",
+  examplePath = ".env.example",
+  defaultsPath = ".env.defaults",
+  export: _export = false,
+  allowEmptyValues = false,
+  restrictEnvAccessTo = [],
+}: LoadOptions = {}): LoadConfig {
   const conf = parseFileSync(envPath, restrictEnvAccessTo);
 
   if (defaultsPath) {
@@ -237,35 +236,30 @@ export function loadSync(
       Deno.env.set(key, conf[key]);
     }
   }
-
-  return conf;
+  generateTypes(conf);
+  return conf as LoadConfig;
 }
 
 export function load(
-  options?: Omit<LoadOptions, "restrictEnvAccessTo">,
-): Promise<Record<string, string>>;
+  options?: Omit<LoadOptions, "restrictEnvAccessTo">
+): Promise<LoadConfig>;
 export function load<TEnvVar extends string>(
   options: Omit<LoadOptions, "restrictEnvAccessTo"> & {
     restrictEnvAccessTo: StrictEnvVarList<TEnvVar>;
-  },
+  }
 ): Promise<StrictDotenvConfig<StrictEnvVarList<TEnvVar>>>;
-export async function load(
-  {
-    envPath = ".env",
-    examplePath = ".env.example",
-    defaultsPath = ".env.defaults",
-    export: _export = false,
-    allowEmptyValues = false,
-    restrictEnvAccessTo = [],
-  }: LoadOptions = {},
-): Promise<Record<string, string>> {
+export async function load({
+  envPath = ".env",
+  examplePath = ".env.example",
+  defaultsPath = ".env.defaults",
+  export: _export = false,
+  allowEmptyValues = false,
+  restrictEnvAccessTo = [],
+}: LoadOptions = {}): Promise<LoadConfig> {
   const conf = await parseFile(envPath, restrictEnvAccessTo);
 
   if (defaultsPath) {
-    const confDefaults = await parseFile(
-      defaultsPath,
-      restrictEnvAccessTo,
-    );
+    const confDefaults = await parseFile(defaultsPath, restrictEnvAccessTo);
     for (const key in confDefaults) {
       if (!(key in conf)) {
         conf[key] = confDefaults[key];
@@ -274,10 +268,7 @@ export async function load(
   }
 
   if (examplePath) {
-    const confExample = await parseFile(
-      examplePath,
-      restrictEnvAccessTo,
-    );
+    const confExample = await parseFile(examplePath, restrictEnvAccessTo);
     assertSafe(conf, confExample, allowEmptyValues, restrictEnvAccessTo);
   }
 
@@ -288,12 +279,13 @@ export async function load(
     }
   }
 
-  return conf;
+  generateTypes(conf);
+  return conf as LoadConfig;
 }
 
 function parseFileSync(
   filepath: string,
-  restrictEnvAccessTo: StringList = [],
+  restrictEnvAccessTo: StringList = []
 ): Record<string, string> {
   try {
     return parse(Deno.readTextFileSync(filepath), restrictEnvAccessTo);
@@ -305,7 +297,7 @@ function parseFileSync(
 
 async function parseFile(
   filepath: string,
-  restrictEnvAccessTo: StringList = [],
+  restrictEnvAccessTo: StringList = []
 ): Promise<Record<string, string>> {
   try {
     return parse(await Deno.readTextFile(filepath), restrictEnvAccessTo);
@@ -324,7 +316,7 @@ function expandCharacters(str: string): string {
 
   return str.replace(
     /\\([nrt])/g,
-    ($1: keyof CharactersMap): string => charactersMap[$1],
+    ($1: keyof CharactersMap): string => charactersMap[$1]
   );
 }
 
@@ -332,7 +324,7 @@ function assertSafe(
   conf: Record<string, string>,
   confExample: Record<string, string>,
   allowEmptyValues: boolean,
-  restrictEnvAccessTo: StringList = [],
+  restrictEnvAccessTo: StringList = []
 ) {
   const currentEnv = readEnv(restrictEnvAccessTo);
 
@@ -343,25 +335,23 @@ function assertSafe(
     Object.keys(confExample),
     // If allowEmptyValues is false, filter out empty values from configuration
     Object.keys(
-      allowEmptyValues ? confWithEnv : filterValues(confWithEnv, Boolean),
-    ),
+      allowEmptyValues ? confWithEnv : filterValues(confWithEnv, Boolean)
+    )
   );
 
   if (missing.length > 0) {
     const errorMessages = [
-      `The following variables were defined in the example file but are not present in the environment:\n  ${
-        missing.join(
-          ", ",
-        )
-      }`,
+      `The following variables were defined in the example file but are not present in the environment:\n  ${missing.join(
+        ", "
+      )}`,
       `Make sure to add them to your env file.`,
       !allowEmptyValues &&
-      `If you expect any of these variables to be empty, you can set the allowEmptyValues option to true.`,
+        `If you expect any of these variables to be empty, you can set the allowEmptyValues option to true.`,
     ];
 
     throw new MissingEnvVarsError(
       errorMessages.filter(Boolean).join("\n\n"),
-      missing,
+      missing
     );
   }
 }
@@ -370,20 +360,21 @@ function assertSafe(
 // if `restrictEnvAccessTo` property is passed.
 function readEnv(restrictEnvAccessTo: StringList) {
   if (
-    restrictEnvAccessTo && Array.isArray(restrictEnvAccessTo) &&
+    restrictEnvAccessTo &&
+    Array.isArray(restrictEnvAccessTo) &&
     restrictEnvAccessTo.length > 0
   ) {
     return restrictEnvAccessTo.reduce(
       (
         accessedEnvVars: Record<string, string>,
-        envVarName: string,
+        envVarName: string
       ): Record<string, string> => {
         if (Deno.env.get(envVarName)) {
           accessedEnvVars[envVarName] = Deno.env.get(envVarName) as string;
         }
         return accessedEnvVars;
       },
-      {},
+      {}
     );
   }
 
@@ -413,10 +404,9 @@ function expand(str: string, variablesMap: { [key: string]: string }): string {
         const expandValue = inBrackets || notInBrackets;
         const defaultValue = inBracketsDefault || notInBracketsDefault;
 
-        return variablesMap[expandValue] ||
-          expand(defaultValue, variablesMap);
+        return variablesMap[expandValue] || expand(defaultValue, variablesMap);
       }),
-      variablesMap,
+      variablesMap
     );
   } else {
     return str;
@@ -443,7 +433,7 @@ export function stringify(object: Record<string, string>) {
     let escapedValue = value ?? "";
     if (key.startsWith("#")) {
       console.warn(
-        `key starts with a '#' indicates a comment and is ignored: '${key}'`,
+        `key starts with a '#' indicates a comment and is ignored: '${key}'`
       );
       continue;
     } else if (escapedValue.includes("\n")) {
@@ -463,4 +453,15 @@ export function stringify(object: Record<string, string>) {
     lines.push(line);
   }
   return lines.join("\n");
+}
+
+function generateTypes(config: Record<string, string>) {
+  const confKeys = Object.keys(config)
+    .map((key) => `${key}: string;`)
+    .join("");
+
+  Deno.writeFile(
+    fromFileUrl(import.meta.resolve("./load_types.ts")),
+    new TextEncoder().encode(`export type LoadConfig = {${confKeys}}`)
+  );
 }

@@ -1,0 +1,1 @@
+export type LoadConfig = {name: string;x: string;[key: string]: string;}
